@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strata-memory"
+version = "0.1.0"
+description = "Strata Memory — local-first, tiered, conflict-aware memory engine (spec v0.7 MVP)"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+# Real vector adapters are optional extras: the foundation (steps 1-6) imports neither.
+# They are pinned to the exact versions confirmed on PyPI and approved in the build plan.
+[project.optional-dependencies]
+adapters = [
+  "zvec==0.5.0",
+  "turbovec==0.8.0",
+]
+dev = [
+  "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["strata*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "invariant: non-negotiable invariant suites (must pass against the fake at step 6)",
+  "adapter: tests that require a real vector backend (zvec/turbovec)",
+]

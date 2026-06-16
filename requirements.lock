@@ -1,0 +1,8 @@
+iniconfig==2.3.0
+numpy==2.4.6
+packaging==26.2
+pluggy==1.6.0
+Pygments==2.20.0
+pytest==9.1.0
+turbovec==0.8.0
+zvec==0.5.0
