@@ -23,6 +23,50 @@ Strata Memory inverts this paradigm through a strict separation of evidence from
 
 ---
 
+## 🚀 Quickstart: Connecting to a Local LLM
+
+Connecting Strata Memory to a local LLM client (like Ollama) takes just a few lines of code. You pass the user query to Strata first, receive a structured `BeliefBundle`, inject it straight into the system prompt context, and write the new turn back to log history.
+
+```python
+import json
+import ollama
+from strata.gateway import MemoryGateway
+
+# 1. Initialize the local memory gateway
+memory = MemoryGateway(db_path="~/.vui/strata.db")
+
+user_query = "What did I tell you yesterday about my current resume project?"
+
+# 2. Recall historical context from active tiers (zvec + lexical + SQLite)
+# Returns a compact, conflict-resolved 'BeliefBundle' targeting a 1-2 KB budget
+belief_bundle = memory.recall(query=user_query, scope="active", budget="voice")
+
+# 3. Format the bundle directly into your model's system prompt context
+context_injection = f"""
+You are a helpful companion. Analyze the following verified user beliefs and context before responding:
+{json.dumps(belief_bundle['current_beliefs'], indent=2)}
+"""
+
+messages = [
+    {"role": "system", "content": context_injection},
+    {"role": "user", "content": user_query}
+]
+
+# 4. Fire the prompt to your local model instance
+response = ollama.chat(model="qwen3.5:4b", messages=messages)
+assistant_reply = response['message']['content']
+print(f"Assistant: {assistant_reply}")
+
+# 5. Append the complete interaction turn back into L0 raw events
+memory.write_event({
+    "role": "user",
+    "text": user_query,
+    "response": assistant_reply
+})
+```
+
+---
+
 ## ⚔️ Lineage & Differentiation
 
 Strata Memory is built for heavy local execution and high data sovereignty. While it draws inspiration from pioneering open-source memory concepts, specific architectural constraints differentiate it from its source projects.
