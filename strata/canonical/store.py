@@ -300,6 +300,18 @@ class CanonicalStore:
         seen.discard(record_id)
         return seen
 
+    def derived_from(self, record_id: int) -> list[int]:
+        """Records derived from ``record_id`` — parent ids of a derived_from edge.
+
+        Used to find the facts (L1) distilled from a raw event (L0): a fact links
+        to its source via ``add_dependency(fact_id, event_id, Relation.DERIVED_FROM)``.
+        """
+        rows = self._conn().execute(
+            "SELECT parent_id FROM dependencies WHERE child_id = ? AND rel = ?",
+            (record_id, Relation.DERIVED_FROM.value),
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def superseders_of(self, record_id: int) -> list[int]:
         """Records that supersede ``record_id`` (parent ids of a supersedes edge)."""
         rows = self._conn().execute(

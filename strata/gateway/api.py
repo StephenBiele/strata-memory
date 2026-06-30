@@ -69,11 +69,21 @@ class Strata:
         self.store.close()
 
     # -- writes ----------------------------------------------------------------
-    def write_event(self, content: str, **fields) -> dict:
+    def write_event(self, content: str, *, record_type: RecordType = RecordType.SYSTEM,
+                    **fields) -> dict:
+        # Raw episodic spine (tier L0). Hosts may tag the kind of event — e.g.
+        # RecordType.EPISODE for a conversational turn — so the timeline can
+        # distinguish them from internal system events.
         rec = MemoryRecord.create(
-            content, record_type=RecordType.SYSTEM, tier=Tier.L0, **fields
+            content, record_type=record_type, tier=Tier.L0, **fields
         )
         return _summary(self.engine.write_memory(rec))
+
+    def link_source(self, derived_id: int, source_id: int) -> None:
+        """Record that ``derived_id`` (e.g. an L1 fact) was distilled from
+        ``source_id`` (e.g. an L0 event). Enables 'when/where did I learn this?'."""
+        from strata.canonical.records import Relation
+        self.store.add_dependency(derived_id, source_id, Relation.DERIVED_FROM)
 
     def write_memory(
         self,
