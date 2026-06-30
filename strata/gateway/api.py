@@ -46,14 +46,23 @@ class Strata:
 
     # -- construction ----------------------------------------------------------
     @classmethod
-    def open(cls, *, db_path: str = ":memory:", vector_factory=None) -> "Strata":
+    def open(cls, *, db_path: str = ":memory:", vector_factory=None,
+             embedder=None) -> "Strata":
         store = CanonicalStore(db_path)
         lexical = LexicalStore(store)
         coordinator = WriteCoordinator(store)
         resolver = Resolver(store)
-        embedder = DeterministicHashEmbedder()
+        # A host may inject a real embedding model; the default stays offline and
+        # reproducible (spec §8). A custom embedder gets its own generation so the
+        # embedding_generations table stays honest about which model wrote vectors.
+        if embedder is None:
+            embedder = DeterministicHashEmbedder()
+            generation = 1
+        else:
+            generation = 2
         vstore = vector_factory(embedder.dim) if vector_factory else InMemoryVectorStore()
-        engine = MemoryEngine(store, lexical, {"hot": vstore}, coordinator, resolver, embedder)
+        engine = MemoryEngine(store, lexical, {"hot": vstore}, coordinator, resolver,
+                              embedder, active_generation=generation)
         return cls(engine, ReflectionEngine(engine))
 
     def close(self) -> None:
