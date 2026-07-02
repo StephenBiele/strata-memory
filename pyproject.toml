@@ -23,6 +23,11 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["strata*"]
 
+# Ship the SQL schema files with the package — without this, a non-editable
+# pip install crashes at the first Strata.open() (FileNotFoundError: schema.sql).
+[tool.setuptools.package-data]
+strata = ["**/*.sql"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
