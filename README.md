@@ -25,21 +25,20 @@ Strata Memory inverts this paradigm through a strict separation of evidence from
 
 ## 🚀 Quickstart: Connecting to a Local LLM
 
-Connecting Strata Memory to a local LLM client (like Ollama) takes just a few lines of code. You pass the user query to Strata first, receive a structured `BeliefBundle`, inject it straight into the system prompt context, and write the new turn back to log history.
+Connecting Strata Memory to a local LLM client (like Ollama) takes just a few lines of code. You pass the user query to Strata first, receive a structured, conflict-resolved belief bundle, inject it straight into the system prompt context, and write the new turn back to log history.
 
 ```python
 import json
 import ollama
-from strata.gateway import MemoryGateway
+from strata.gateway import Strata
 
-# 1. Initialize the local memory gateway
-memory = MemoryGateway(db_path="~/.vui/strata.db")
+# 1. Open the local memory gateway (creates the database and parent dirs on first use)
+memory = Strata.open(db_path="~/.vui/strata.db")
 
 user_query = "What did I tell you yesterday about my current resume project?"
 
-# 2. Recall historical context from active tiers (zvec + lexical + SQLite)
-# Returns a compact, conflict-resolved 'BeliefBundle' targeting a 1-2 KB budget
-belief_bundle = memory.recall(query=user_query, scope="active", budget="voice")
+# 2. Recall historical context (vector + lexical + SQLite, hydrated and conflict-resolved)
+belief_bundle = memory.recall(user_query, top_k=10)
 
 # 3. Format the bundle directly into your model's system prompt context
 context_injection = f"""
@@ -58,11 +57,10 @@ assistant_reply = response['message']['content']
 print(f"Assistant: {assistant_reply}")
 
 # 5. Append the complete interaction turn back into L0 raw events
-memory.write_event({
-    "role": "user",
-    "text": user_query,
-    "response": assistant_reply
-})
+memory.write_event(f"user: {user_query}")
+memory.write_event(f"assistant: {assistant_reply}")
+
+memory.close()
 ```
 
 ---

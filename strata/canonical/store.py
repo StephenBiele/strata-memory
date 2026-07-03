@@ -61,7 +61,12 @@ def _row_to_record(row: sqlite3.Row) -> MemoryRecord:
 
 class CanonicalStore:
     def __init__(self, path: str | Path = ":memory:") -> None:
-        self.path = str(path)
+        if str(path) == ":memory:":
+            self.path = ":memory:"
+        else:
+            resolved = Path(path).expanduser()
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            self.path = str(resolved)
         self._local = threading.local()
         # In-memory DBs are not shared across connections; pin a single shared connection.
         self._shared = self._new_connection() if self.path == ":memory:" else None
