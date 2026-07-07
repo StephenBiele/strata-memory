@@ -74,7 +74,7 @@ Strata Memory is built for heavy local execution and high data sovereignty. Whil
 * **The Differentiation:** TencentDB-Agent-Memory utilizes a strict 4-tier pipeline where atomic facts, episodic data, and instructions are grouped together in a single layer. Strata splits atomic facts into their own tier (L1) and introduces a dedicated **L1.5 Aggregation Buffer** to cluster related records, catch emerging contradictions, and review changes before they are prematurely promoted. Furthermore, TencentDB treats deterministic guardrails as an external operational safety layer, whereas Strata integrates them directly into the core engine as an immutable memory tier (L4) enforced before and after retrieval.
 
 ### 2. vs. zvec
-* **Inspiration:** Strata integrates `zvec` as its default hot vector adapter due to its high-performance, embedded execution, and low-latency local retrieval profiles.
+* **Inspiration:** Strata ships a `zvec` hot-vector adapter (opt-in today; see [Implementation Status](#-implementation-status)) chosen for its high-performance, embedded execution, and low-latency local retrieval profiles.
 * **The Differentiation:** Because `zvec` is pre-1.0 and enforces single-process-exclusive write locks, running live conversational mutations alongside asynchronous background reflection threads can trigger immediate write contention. Strata resolves this by wrapping the index inside a durable, SQLite-backed **Write Coordinator**. All mutations, background optimizations, and deletion tasks are serialized through a strict single-writer queue, ensuring concurrent reads remain completely non-blocking and safe.
 
 ### 3. vs. TurboVec
@@ -85,16 +85,41 @@ Strata Memory is built for heavy local execution and high data sovereignty. Whil
 
 ## 🗺️ Architectural Tiers
 
-Strata organizes information across five distinct lifecycle layers. Records move upward as they grow more stable and verified, or downward if they become contradicted or stale.
+Strata organizes information across five distinct lifecycle layers. Records move upward as they grow more stable and verified, or downward if they become contradicted or stale. The **Status** column reflects what is wired and exercised today (see [Implementation Status](#-implementation-status) below) versus what is designed and reserved in the schema but not yet driven end-to-end.
 
-| Tier | Name | Purpose | Canonical Form | Indexing Method |
+| Tier | Name | Purpose | Canonical Form | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **L0** | Raw Events | Preserves exact history, transcripts, tool calls, and raw session commands. | Append-only event log. | Recent window in `zvec`; full lexical lookup. |
-| **L1** | Atomic Facts | Tracks small claims, individual preferences, and explicit user corrections. | Structured records with source links. | Active records in `zvec`; shifts to `TurboVec` as it ages. |
-| **L1.5** | Aggregation Buffer | Buffers intermediate clusters to audit duplicates, catch contradictions, and stage merges. | Reviewable aggregation records. | Internal state tracking; hidden from standard recall. |
-| **L2** | Episodes & Scenarios | Captures narrative chunks, ongoing projects, and multi-turn contextual blocks. | Multi-turn summaries with source spans. | `TurboVec` archive index paired with BM25. |
-| **L3** | Continuity Model | Synthesizes your current best understanding of a user profile and interaction guidance. | Editable profile records backed by trace evidence. | Selective lexical and vector indexing. |
-| **L4** | Deterministic Guards | Enforces strict integrity rules, hard deletion policies, and conflict invariants without an LLM. | Executable python guardrail policies. | Strictly algorithmic; executed before and after retrieval. |
+| **L0** | Raw Events | Preserves exact history, transcripts, tool calls, and raw session commands. | Append-only event log. | ✅ **Live** — written every turn; lexical + vector recall. |
+| **L1** | Atomic Facts | Tracks small claims, individual preferences, and explicit user corrections. | Structured records with source links. | ✅ **Live** — the workhorse tier; source-linked, superseded, tombstoned. |
+| **L1.5** | Aggregation Buffer | Buffers intermediate clusters to audit duplicates, catch contradictions, and stage merges. | Reviewable aggregation records. | ✅ **Live** — deterministic Jaccard clustering + reviewable merge/contradiction proposals (`run_reflection`). |
+| **L2** | Episodes & Scenarios | Captures narrative chunks, ongoing projects, and multi-turn contextual blocks. | Multi-turn summaries with source spans. | ◻ **Roadmap** — episodes are currently kept at L0; no distinct L2 tier yet. |
+| **L3** | Continuity Model | Synthesizes your current best understanding of a user profile and interaction guidance. | Editable profile records backed by trace evidence. | ◻ **Roadmap** — the reference app keeps the profile as a flat document, not L3 records. |
+| **L4** | Deterministic Guards | Enforces strict integrity rules, hard deletion policies, and conflict invariants without an LLM. | Executable python guardrail policies. | ◐ **Partial** — guardrail records, sensitivity policy, and deterministic tombstone enforcement are live; arbitrary user policies are not. |
+
+> **Indexing note.** The tiered `zvec` (hot) + `TurboVec` (archive) split described below is the intended vector topology. Today the engine's default vector store — and the Strata Voice reference app — run on the rebuildable in-memory adapter (`vector/fake.py`). The `zvec`/`TurboVec` adapters are implemented and tested but are opt-in via `vector_factory`, and the hot/archive aging flow is not yet wired by default. Because vectors are ephemeral projections by design, this changes performance at scale, not correctness.
+
+---
+
+## 🧭 Implementation Status
+
+Strata is built in layers, and not all of them are wired end-to-end yet. This section is the honest ledger so the architecture above is read as *design intent with a status*, not a claim that every tier is running.
+
+**Live and exercised today** (canonical spine + working tiers):
+* SQLite canonical store as the single source of truth — records, versions, content hashes, dependencies (`SUPERSEDES` / `CONTRADICTS` / `DERIVED_FROM` / …).
+* The deterministic **resolver → `BeliefBundle`**: vector + FTS5 lexical hits, hydrated against canonical rows, tombstones dropped, conflicts reconciled before anything reaches the model.
+* First-class **deletion (hard tombstones)** and **supersession**, routed through the single **Write Coordinator**.
+* **L0** raw events, **L1** atomic facts with source links, **L1.5** reflection (deterministic clustering → reviewable merge / contradiction proposals via `run_reflection`), and **L4** guardrail records + sensitivity policy.
+* Pluggable embedders; **FTS5** lexical index; the **in-memory vector adapter** as the default projection.
+
+**Built but not wired by default** (present, tested, opt-in):
+* The **`zvec`** (hot) and **`TurboVec`** (archive) vector adapters — real implementations, selectable via `vector_factory`, but not the default and not yet arranged into the hot→archive aging topology.
+
+**Designed, not yet built** (reserved in the schema / roadmap):
+* **L2** episodes-and-scenarios as a distinct tier (episodes currently live at L0).
+* **L3** continuity-model profile records (reference integrations keep the profile as a flat document).
+* Records automatically **migrating downward** across tiers as they age or are contradicted.
+
+The reference integration, [**Strata Voice**](https://github.com/StephenBiele/Strata-Voice), currently drives L0 / L1 / L1.5 / L4 on the in-memory vector adapter, and layers its own time-aware selection and recency logic above `recall()`.
 
 ---
 
